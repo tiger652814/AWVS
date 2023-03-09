@@ -1,13 +1,7 @@
 import requests
 import urllib3
-from mailmerge import MailMerge
 from docx import Document
-from docx.enum.text import WD_BREAK
-
-# 加载Word文档
-template = "AWVS.docx"
-document = MailMerge(template)
-#document.add_page_break()  # 添加分页符
+from docx.shared import Pt
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -24,8 +18,16 @@ response = requests.get(f'{api_url}?group_id={group_id}', headers=headers, verif
 
 # 获取返回的 JSON 数据并提取 scan_id 和 scan_session_id
 scan_data = response.json()['scans']
-scan_id_list = [scan['scan_id'] for scan in scan_data]
-scan_session_id_list = [scan['current_session']['scan_session_id'] for scan in scan_data]
+scan_id_list = []
+scan_session_id_list = []
+for scan in scan_data:
+    # 判断 IP 是否以 10.252 开头
+    if str(scan['target']).startswith('10.252.'):
+        scan_id_list.append(scan['scan_id'])
+        scan_session_id_list.append(scan['current_session']['scan_session_id'])
+
+# 创建 Word 文档对象
+document = Document()
 
 # 定义数据列表
 data_list = []
@@ -38,7 +40,7 @@ for scan_id, scan_session_id in zip(scan_id_list, scan_session_id_list):
         vuln_url = f'{api_url}/{scan_id}/results/{scan_session_id}/vulnerabilities/{vuln_id}'
         response = requests.get(vuln_url, headers=headers, verify=False)
         vuln_details = response.json()
-        # 对cvss_score值进行判断
+        # 对 cvss_score 值进行判断
         if vuln_details['cvss_score'] >= 7.0:
             cvss_score_str = '高危'
         elif vuln_details['cvss_score'] >= 4.0:
@@ -48,7 +50,6 @@ for scan_id, scan_session_id in zip(scan_id_list, scan_session_id_list):
         else:
             cvss_score_str = '信息'
         data_list.append({
-            'vuln_id': vuln_id,
             'vt_name': vuln_details['vt_name'],
             'long_description': vuln_details['long_description'],
             'affects_detail': vuln_details['affects_detail'],
@@ -56,28 +57,31 @@ for scan_id, scan_session_id in zip(scan_id_list, scan_session_id_list):
             'impact': vuln_details['impact'],
             'affects_url': vuln_details['affects_url'],
             'request': vuln_details['request'],
-            'details': vuln_details['details'],
             'cvss_score': cvss_score_str,
             'recommendation': vuln_details['recommendation'],
             'references': vuln_details['references'],
         })
 
+# 添加标题
+document.add_heading('漏洞列表', 0)
+
 # 遍历数据列表，输出数据到文档中
-for data in data_list:
-    document.merge(
-        vt_name=data['vt_name'],
-        long_description=data['long_description'],
-        affects_detail=data['affects_detail'],
-        description=data['description'],
-        impact=data['impact'],
-        affects_url=data['affects_url'],
-        request=data['request'],
-        details=data['details'],
-        cvss_score=str(data['cvss_score']),
-        recommendation=data['recommendation'],
-        references=data['references'],
-    )
+for index, data in enumerate(data_list):
+    # 生成段落
+    paragraph = document.add_paragraph()
+    # 设置段落的格式和样式
+    paragraph.space_after = Pt(10)  # 段后距离
+    paragraph.space_before = Pt(10)  # 段前距离
+    paragraph.font.name = '宋体' # 设置段落中的字体
+    paragraph.font.size = Pt(12) # 设置段落中的字号
+    # 合并段落中的各个字段
+    paragraph.add_run(f"漏洞名称：{data['vt_name']}\n漏洞描述：{data['long_description']}\n" \
+                           f"影响版本：{data['affects_detail']}\n漏洞详情：{data['description']}\n" \
+                           f"风险评估：{data['impact']}\n相关 URL：{data['affects_url']}\n" \
+                           f"请求数据：{data['request']}\n" \
+                           f"CVSS评分：{data['cvss_score']}\n建议处理：{data['recommendation']}\n参考链接：{data['references']}\n")
+    # 添加换行符
+    paragraph.add_run('\n')
 
 # 保存文档
-document.write('output36.docx')
-
+document.save('D:\\pythonProject7\\output57.docx')
